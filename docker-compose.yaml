@@ -1,0 +1,115 @@
+ version: "3.8"
+
+ services:
+
+   rabbitmq:
+    image: rabbitmq:management-alpine
+    container_name: rabbitmq
+    hostname: rabbit
+    env_file:
+      - ./env/rabbitmq.env
+    volumes:
+      - ./data/rabbitmq:/var/lib/rabbitmq
+    mem_limit: 512m
+    mem_reservation: 128m
+    cpus: 0.5
+
+   db:
+    image: mariadb:11.1.4
+    container_name: db
+    env_file:
+      - ./env/mariadb.app.env
+    volumes:
+      - ./data/app:/var/lib/mysql
+    command: --max_allowed_packet=5000000000
+    mem_limit: 4096m
+    mem_reservation: 2048m
+    depends_on:
+      - rabbitmq
+
+   server:
+    image: 'nginx:1.25.4-alpine3.18'
+    container_name: server
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./app:/var/www/html
+      - ./configurations/nginx/app.conf:/etc/nginx/conf.d/app.conf
+      - ./logs/nginx/app:/var/log/nginx
+      - ./configurations/nginx/ssl:/ssl
+    mem_limit: 128m
+    mem_reservation: 32m
+    cpus: 0.2
+    depends_on:
+      - app
+
+   app:
+    image: 'php:8.3-custom'
+    container_name: app
+    volumes:
+      - ./app:/var/www/html:delegated
+      - ./configurations/php/app.ini:/usr/local/etc/php/conf.d/local.ini
+      - /root/.ssh:/root/.ssh
+    mem_limit: 5120m
+    mem_reservation: 3072m
+    depends_on:
+      - db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+   redis:
+    image: redis:alpine3.19
+    container_name: redis
+    command: redis-server --appendonly yes --replica-read-only no
+    volumes:
+      - ./data/redis:/data
+    mem_limit: 512m
+    mem_reservation: 128m
+    cpus: 0.25
+
+   service1-db:
+    image: mariadb:11.1.4
+    container_name: service1-db
+    env_file:
+      - ./env/mariadb.service1.env
+    volumes:
+      - ./data/service1/data:/var/lib/mysql
+    command: --max_allowed_packet=5000000000
+    mem_limit: 1024m
+    mem_reservation: 256m
+    cpus: 1
+
+   service1-server:
+    image: 'nginx:1.25.4-alpine3.18'
+    container_name: service1-server
+    volumes:
+      - ./services/service1:/var/www/html
+      - ./configurations/nginx/service1.conf:/etc/nginx/conf.d/service1.conf
+      - ./logs/nginx/service1:/var/log/nginx
+    mem_limit: 256m
+    mem_reservation: 64m
+    cpus: 0.2
+    depends_on:
+      - service1
+
+   service1:
+    image: 'php:8.3-custom'
+    container_name: service1
+    volumes:
+      - ./services/service1/:/var/www/html:delegated
+      - ./configurations/php/service1.ini:/usr/local/etc/php/conf.d/local.ini
+      - /root/.ssh:/root/.ssh
+    mem_limit: 1024m
+    mem_reservation: 256m
+    cpus: 0.5
+    depends_on:
+      - service1-db
+
+   assetDiscovery:
+    image: alpine:3.19.1
+    container_name: assetDiscovery
+    working_dir: /var/www/html
+    entrypoint: ["./assetDiscovery-service.bin","-l","0.0.0.0"]
+    volumes:
+      - ./services/asset-discovery:/var/www/html
